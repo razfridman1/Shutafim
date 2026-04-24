@@ -5,12 +5,12 @@ import uuid
 from datetime import datetime
 
 # =========================
-# CONFIG
+# APP CONFIG
 # =========================
-st.set_page_config(page_title="שותפים - מציאת שותפים", layout="wide")
+st.set_page_config(page_title="שותפים - מציאת שותפים לדירה", layout="wide")
 
 # =========================
-# STATE DB
+# SESSION STATE
 # =========================
 if "users" not in st.session_state:
     st.session_state.users = []
@@ -24,16 +24,6 @@ if "listings" not in st.session_state:
 # =========================
 # HELPERS
 # =========================
-def create_user(name, age, city, budget, lifestyle):
-    return {
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "age": age,
-        "city": city,
-        "budget": budget,
-        "lifestyle": lifestyle
-    }
-
 def match_score(u1, u2):
 
     score = 0
@@ -51,12 +41,13 @@ def match_score(u1, u2):
     return round(score, 2)
 
 # =========================
-# SIDEBAR
+# SIDEBAR MENU
 # =========================
 st.sidebar.title("🏠 שותפים")
-menu = st.sidebar.radio("תפריט", [
+
+menu = st.sidebar.radio("ניווט", [
     "דשבורד",
-    "פרופיל חדש",
+    "יצירת פרופיל",
     "התאמות",
     "לוח דירות",
     "צ'אט"
@@ -67,7 +58,7 @@ menu = st.sidebar.radio("תפריט", [
 # =========================
 if menu == "דשבורד":
 
-    st.title("🏠 שותפים - מערכת התאמת שותפים בישראל")
+    st.title("🏠 שותפים - מערכת מציאת שותפים")
 
     col1, col2, col3 = st.columns(3)
 
@@ -83,49 +74,67 @@ if menu == "דשבורד":
         st.info("אין משתמשים עדיין")
 
 # =========================
-# CREATE USER
+# CREATE USER (FINAL FIXED VERSION)
 # =========================
-elif menu == "פרופיל חדש":
+elif menu == "יצירת פרופיל":
 
-    st.title("👤 יצירת פרופיל")
+    st.title("👤 יצירת פרופיל משתמש")
 
-    name = st.text_input("שם")
-    age = st.number_input("גיל", 18, 100, 25)
+    with st.form("user_form"):
 
-    city = st.selectbox("עיר", ["תל אביב", "ירושלים", "חיפה", "באר שבע"])
+        name = st.text_input("שם מלא")
 
-    budget = st.number_input("תקציב (₪)", 1000, 20000, 4000)
+        age = st.number_input("גיל", 18, 100, 25)
 
-    lifestyle = st.multiselect("סגנון חיים", [
-        "שקט",
-        "חברתי",
-        "נקי",
-        "מעשן",
-        "חיות מחמד",
-        "לילות מאוחרים"
-    ])
+        city = st.selectbox(
+            "עיר מגורים",
+            ["תל אביב", "ירושלים", "חיפה", "באר שבע", "רמת גן", "הרצליה"]
+        )
 
-    if st.button("צור פרופיל"):
+        budget = st.number_input("תקציב חודשי (₪)", 1000, 30000, 5000)
 
-        user = create_user(name, age, city, budget, lifestyle)
-        st.session_state.users.append(user)
+        lifestyle = st.multiselect(
+            "סגנון חיים",
+            ["שקט", "חברתי", "נקי", "מעשן", "חיות מחמד", "עובד מהבית", "לילות מאוחרים"]
+        )
 
-        st.success("הפרופיל נוצר!")
+        submitted = st.form_submit_button("➕ צור פרופיל")
+
+    if submitted:
+
+        if not name:
+            st.error("חובה להזין שם")
+        else:
+
+            user = {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "age": age,
+                "city": city,
+                "budget": budget,
+                "lifestyle": lifestyle
+            }
+
+            st.session_state.users.append(user)
+
+            st.success(f"✅ משתמש {name} נוצר בהצלחה!")
+
+            st.json(user)
 
 # =========================
-# MATCHING
+# MATCHING ENGINE
 # =========================
 elif menu == "התאמות":
 
-    st.title("🤝 התאמות חכמות")
+    st.title("🤝 התאמות חכמות לשותפים")
 
     if len(st.session_state.users) < 2:
-        st.warning("צריך לפחות 2 משתמשים")
+        st.warning("צריך לפחות 2 משתמשים כדי לבצע התאמות")
     else:
 
         for user in st.session_state.users:
 
-            st.subheader(f"👤 התאמות עבור {user['name']}")
+            st.subheader(f"👤 התאמות עבור: {user['name']}")
 
             matches = []
 
@@ -139,10 +148,10 @@ elif menu == "התאמות":
                         "שם": other["name"],
                         "עיר": other["city"],
                         "תקציב": other["budget"],
-                        "התאמה": score
+                        "התאמה (%)": score
                     })
 
-            matches = sorted(matches, key=lambda x: x["התאמה"], reverse=True)
+            matches = sorted(matches, key=lambda x: x["התאמה (%)"], reverse=True)
 
             st.dataframe(pd.DataFrame(matches))
 
@@ -151,25 +160,37 @@ elif menu == "התאמות":
 # =========================
 elif menu == "לוח דירות":
 
-    st.title("🏢 לוח דירות")
+    st.title("🏢 לוח דירות ושותפים")
 
-    st.subheader("הוסף דירה")
+    st.subheader("➕ הוסף דירה")
 
     owner = st.text_input("שם בעל הדירה")
-    city = st.selectbox("עיר", ["תל אביב", "ירושלים", "חיפה", "באר שבע"])
-    price = st.number_input("מחיר", 1000, 30000, 5000)
-    desc = st.text_area("תיאור")
+
+    city = st.selectbox(
+        "עיר",
+        ["תל אביב", "ירושלים", "חיפה", "באר שבע"]
+    )
+
+    price = st.number_input("מחיר (₪)", 1000, 30000, 5000)
+
+    desc = st.text_area("תיאור הדירה")
 
     if st.button("פרסם דירה"):
 
-        st.session_state.listings.append({
-            "owner": owner,
-            "city": city,
-            "price": price,
-            "desc": desc
-        })
+        if owner:
 
-    st.subheader("דירות זמינות")
+            st.session_state.listings.append({
+                "owner": owner,
+                "city": city,
+                "price": price,
+                "desc": desc
+            })
+
+            st.success("הדירה פורסמה!")
+        else:
+            st.error("חובה להזין שם בעל הדירה")
+
+    st.subheader("📌 דירות זמינות")
 
     if st.session_state.listings:
         st.dataframe(pd.DataFrame(st.session_state.listings))
@@ -177,7 +198,7 @@ elif menu == "לוח דירות":
         st.info("אין דירות עדיין")
 
 # =========================
-# CHAT
+# CHAT SYSTEM
 # =========================
 elif menu == "צ'אט":
 
@@ -194,16 +215,20 @@ elif menu == "צ'אט":
 
         msg = st.text_input("הודעה")
 
-        if st.button("שלח"):
+        if st.button("שלח הודעה"):
 
-            st.session_state.messages.append({
-                "from": sender,
-                "to": receiver,
-                "msg": msg,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
+            if msg:
 
-        st.subheader("הודעות")
+                st.session_state.messages.append({
+                    "from": sender,
+                    "to": receiver,
+                    "msg": msg,
+                    "time": datetime.now().strftime("%H:%M:%S")
+                })
+
+                st.success("הודעה נשלחה!")
+
+        st.subheader("📨 הודעות")
 
         for m in reversed(st.session_state.messages):
 
