@@ -1,239 +1,240 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import uuid
 from datetime import datetime
+import uuid
+import urllib.parse
+
+st.set_page_config(page_title="הבית שלנו", layout="wide")
 
 # =========================
-# APP CONFIG
+# STYLE (APPLE-LIKE UI)
 # =========================
-st.set_page_config(page_title="שותפים - מציאת שותפים לדירה", layout="wide")
+st.markdown("""
+<style>
+.main {
+    background-color: #F5F5F7;
+}
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0px 4px 12px rgba(0,0,0,0.08);
+}
+.big-number {
+    font-size: 28px;
+    font-weight: bold;
+    color: #007AFF;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
-# SESSION STATE
+# STATE
 # =========================
 if "users" not in st.session_state:
     st.session_state.users = []
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "fixed" not in st.session_state:
+    st.session_state.fixed = []
 
-if "listings" not in st.session_state:
-    st.session_state.listings = []
+if "var" not in st.session_state:
+    st.session_state.var = []
 
 # =========================
 # HELPERS
 # =========================
-def match_score(u1, u2):
+def total_fixed():
+    return sum(x["amount"] for x in st.session_state.fixed)
 
-    score = 0
+def total_var():
+    return sum(x["amount"] for x in st.session_state.var)
 
-    # budget similarity
-    score += max(0, 100 - abs(u1["budget"] - u2["budget"]) / 100)
+def calculate_balances():
+    balances = {u["name"]: 0 for u in st.session_state.users}
 
-    # city match
-    if u1["city"] == u2["city"]:
-        score += 50
+    if not balances:
+        return balances
 
-    # lifestyle overlap
-    score += len(set(u1["lifestyle"]).intersection(set(u2["lifestyle"]))) * 25
+    # fixed split
+    per = total_fixed() / len(balances)
+    for k in balances:
+        balances[k] -= per
 
-    return round(score, 2)
+    # variable
+    for e in st.session_state.var:
+        split = e["amount"] / len(e["participants"])
+        for p in e["participants"]:
+            balances[p] -= split
+        balances[e["paid_by"]] += e["amount"]
+
+    return balances
+
+def debts_table(balances):
+    creditors = []
+    debtors = []
+
+    for name, val in balances.items():
+        if val > 0:
+            creditors.append([name, val])
+        elif val < 0:
+            debtors.append([name, -val])
+
+    result = []
+
+    for d_name, d_val in debtors:
+        for c in creditors:
+            if d_val == 0:
+                break
+            c_name, c_val = c
+            pay = min(d_val, c_val)
+            if pay > 0:
+                result.append({
+                    "חייב": d_name,
+                    "למי": c_name,
+                    "סכום": round(pay,2)
+                })
+                d_val -= pay
+                c[1] -= pay
+
+    return pd.DataFrame(result)
+
+def whatsapp_link(text):
+    encoded = urllib.parse.quote(text)
+    return f"https://wa.me/?text={encoded}"
 
 # =========================
-# SIDEBAR MENU
+# MENU
 # =========================
-st.sidebar.title("🏠 שותפים")
+st.sidebar.title("🏠 הבית שלנו")
 
 menu = st.sidebar.radio("ניווט", [
-    "דשבורד",
-    "יצירת פרופיל",
-    "התאמות",
-    "לוח דירות",
-    "צ'אט"
+    "📊 דשבורד",
+    "👥 שותפים",
+    "🧾 הוצאות קבועות",
+    "🔄 הוצאות משתנות"
 ])
 
 # =========================
 # DASHBOARD
 # =========================
-if menu == "דשבורד":
+if menu == "📊 דשבורד":
 
-    st.title("🏠 שותפים - מערכת מציאת שותפים")
+    st.title("📊 מצב הדירה")
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("משתמשים", len(st.session_state.users))
-    col2.metric("הודעות", len(st.session_state.messages))
-    col3.metric("דירות", len(st.session_state.listings))
+    with col1:
+        st.markdown(f"<div class='card'><div>שותפים</div><div class='big-number'>{len(st.session_state.users)}</div></div>", unsafe_allow_html=True)
 
-    st.subheader("👥 משתמשים רשומים")
+    with col2:
+        st.markdown(f"<div class='card'><div>קבוע</div><div class='big-number'>{total_fixed()}</div></div>", unsafe_allow_html=True)
 
-    if st.session_state.users:
-        st.dataframe(pd.DataFrame(st.session_state.users))
+    with col3:
+        st.markdown(f"<div class='card'><div>משתנה</div><div class='big-number'>{total_var()}</div></div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    balances = calculate_balances()
+
+    st.subheader("💰 יתרות")
+
+    df = pd.DataFrame([
+        {"שותף": k, "יתרה": round(v,2)}
+        for k,v in balances.items()
+    ])
+
+    st.dataframe(df)
+
+    st.subheader("⚖️ מי חייב למי")
+
+    debt_df = debts_table(balances)
+
+    if not debt_df.empty:
+        st.dataframe(debt_df)
+
+        # WhatsApp share
+        text = "חובות בדירה:\n"
+        for _, row in debt_df.iterrows():
+            text += f"{row['חייב']} חייב ל{row['למי']} {row['סכום']}₪\n"
+
+        link = whatsapp_link(text)
+
+        st.markdown(f"[📲 שתף ב-WhatsApp]({link})")
+
     else:
-        st.info("אין משתמשים עדיין")
+        st.success("אין חובות 🎉")
 
 # =========================
-# CREATE USER (FINAL FIXED VERSION)
+# USERS
 # =========================
-elif menu == "יצירת פרופיל":
+elif menu == "👥 שותפים":
 
-    st.title("👤 יצירת פרופיל משתמש")
+    st.title("👥 ניהול שותפים")
 
-    with st.form("user_form"):
+    with st.form("add"):
+        name = st.text_input("שם")
+        add = st.form_submit_button("➕ הוסף")
 
-        name = st.text_input("שם מלא")
+    if add and name:
+        st.session_state.users.append({"id": str(uuid.uuid4()), "name": name})
 
-        age = st.number_input("גיל", 18, 100, 25)
+    st.subheader("רשימה")
 
-        city = st.selectbox(
-            "עיר מגורים",
-            ["תל אביב", "ירושלים", "חיפה", "באר שבע", "רמת גן", "הרצליה"]
-        )
+    for i, u in enumerate(st.session_state.users):
+        col1, col2 = st.columns([3,1])
 
-        budget = st.number_input("תקציב חודשי (₪)", 1000, 30000, 5000)
+        new = col1.text_input("שם", value=u["name"], key=u["id"])
 
-        lifestyle = st.multiselect(
-            "סגנון חיים",
-            ["שקט", "חברתי", "נקי", "מעשן", "חיות מחמד", "עובד מהבית", "לילות מאוחרים"]
-        )
+        if col2.button("🗑", key="d"+u["id"]):
+            st.session_state.users.pop(i)
+            st.rerun()
 
-        submitted = st.form_submit_button("➕ צור פרופיל")
-
-    if submitted:
-
-        if not name:
-            st.error("חובה להזין שם")
-        else:
-
-            user = {
-                "id": str(uuid.uuid4()),
-                "name": name,
-                "age": age,
-                "city": city,
-                "budget": budget,
-                "lifestyle": lifestyle
-            }
-
-            st.session_state.users.append(user)
-
-            st.success(f"✅ משתמש {name} נוצר בהצלחה!")
-
-            st.json(user)
+        u["name"] = new
 
 # =========================
-# MATCHING ENGINE
+# FIXED
 # =========================
-elif menu == "התאמות":
+elif menu == "🧾 הוצאות קבועות":
 
-    st.title("🤝 התאמות חכמות לשותפים")
+    st.title("🧾 הוצאות קבועות")
 
-    if len(st.session_state.users) < 2:
-        st.warning("צריך לפחות 2 משתמשים כדי לבצע התאמות")
+    with st.form("fixed"):
+        name = st.text_input("שם")
+        amount = st.number_input("סכום", 0, 50000, 5000)
+        add = st.form_submit_button("הוסף")
+
+    if add:
+        st.session_state.fixed.append({"name": name, "amount": amount})
+
+    st.dataframe(pd.DataFrame(st.session_state.fixed))
+
+# =========================
+# VARIABLE
+# =========================
+elif menu == "🔄 הוצאות משתנות":
+
+    st.title("🔄 הוצאות משתנות")
+
+    names = [u["name"] for u in st.session_state.users]
+
+    if not names:
+        st.warning("אין שותפים")
     else:
 
-        for user in st.session_state.users:
+        with st.form("var"):
+            desc = st.text_input("תיאור")
+            amount = st.number_input("סכום", 0, 20000, 100)
+            payer = st.selectbox("מי שילם", names)
+            parts = st.multiselect("משתתפים", names, default=names)
+            add = st.form_submit_button("הוסף")
 
-            st.subheader(f"👤 התאמות עבור: {user['name']}")
-
-            matches = []
-
-            for other in st.session_state.users:
-
-                if other["id"] != user["id"]:
-
-                    score = match_score(user, other)
-
-                    matches.append({
-                        "שם": other["name"],
-                        "עיר": other["city"],
-                        "תקציב": other["budget"],
-                        "התאמה (%)": score
-                    })
-
-            matches = sorted(matches, key=lambda x: x["התאמה (%)"], reverse=True)
-
-            st.dataframe(pd.DataFrame(matches))
-
-# =========================
-# LISTINGS
-# =========================
-elif menu == "לוח דירות":
-
-    st.title("🏢 לוח דירות ושותפים")
-
-    st.subheader("➕ הוסף דירה")
-
-    owner = st.text_input("שם בעל הדירה")
-
-    city = st.selectbox(
-        "עיר",
-        ["תל אביב", "ירושלים", "חיפה", "באר שבע"]
-    )
-
-    price = st.number_input("מחיר (₪)", 1000, 30000, 5000)
-
-    desc = st.text_area("תיאור הדירה")
-
-    if st.button("פרסם דירה"):
-
-        if owner:
-
-            st.session_state.listings.append({
-                "owner": owner,
-                "city": city,
-                "price": price,
-                "desc": desc
+        if add:
+            st.session_state.var.append({
+                "desc": desc,
+                "amount": amount,
+                "paid_by": payer,
+                "participants": parts,
+                "date": datetime.now()
             })
 
-            st.success("הדירה פורסמה!")
-        else:
-            st.error("חובה להזין שם בעל הדירה")
-
-    st.subheader("📌 דירות זמינות")
-
-    if st.session_state.listings:
-        st.dataframe(pd.DataFrame(st.session_state.listings))
-    else:
-        st.info("אין דירות עדיין")
-
-# =========================
-# CHAT SYSTEM
-# =========================
-elif menu == "צ'אט":
-
-    st.title("💬 צ'אט פנימי")
-
-    if len(st.session_state.users) < 2:
-        st.warning("צריך לפחות 2 משתמשים")
-    else:
-
-        names = [u["name"] for u in st.session_state.users]
-
-        sender = st.selectbox("שולח", names)
-        receiver = st.selectbox("מקבל", names)
-
-        msg = st.text_input("הודעה")
-
-        if st.button("שלח הודעה"):
-
-            if msg:
-
-                st.session_state.messages.append({
-                    "from": sender,
-                    "to": receiver,
-                    "msg": msg,
-                    "time": datetime.now().strftime("%H:%M:%S")
-                })
-
-                st.success("הודעה נשלחה!")
-
-        st.subheader("📨 הודעות")
-
-        for m in reversed(st.session_state.messages):
-
-            st.write(f"""
-**{m['from']} → {m['to']}**  
-{m['msg']}  
-⏱ {m['time']}
-""")
+    st.dataframe(pd.DataFrame(st.session_state.var))
